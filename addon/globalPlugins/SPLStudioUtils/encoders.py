@@ -547,6 +547,8 @@ class SAMEncoder(Encoder):
 				if not encoding:
 					tones.beep(1000, 150)
 					self.encoderStatusMessage(messageCache, self.IAccessibleChildID)
+					# 8.0: Braille users may want a confirmation message a few seconds later.
+					wx.CallLater(3000, self.encoderStatusMessage, messageCache, self.IAccessibleChildID)
 				if self.focusToStudio and not encoding:
 					if api.getFocusObject().appModule == "splstudio":
 						continue
@@ -747,7 +749,9 @@ class SPLEncoder(Encoder):
 			elif messageCache == "Connected":
 				connecting = False
 				# We're on air, so exit.
-				if not connected: tones.beep(1000, 150)
+				if not connected:
+					tones.beep(1000, 150)
+					wx.CallLater(3000, self.encoderStatusMessage, messageCache, self.IAccessibleChildID)
 				if self.focusToStudio and not connected:
 					try:
 						fetchSPLForegroundWindow().setFocus()
