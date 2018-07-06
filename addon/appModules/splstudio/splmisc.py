@@ -561,10 +561,17 @@ def metadata_actionProfileSwitched(configDialogActive=False):
 
 splactions.SPLActionProfileSwitched.register(metadata_actionProfileSwitched)
 
-# Playlist transcript processor
+# Playlist transcripts processor
 # Takes a snapshot of the active playlist (a 2-D array) and transforms it into various formats.
 # To account for expansions, let a master function call different formatters based on output format.
 SPLPlaylistTranscriptFormats = []
+
+# Obtain column presentation order.
+# Although this is useful in playlist transcripts, it can also be useful for column announcement inclusion and order.
+def columnPresentationOrder():
+	from . import splconfig
+	return [column for column in splconfig.SPLConfig["PlaylistTranscripts"]["ColumnOrder"]
+		if column in splconfig.SPLConfig["PlaylistTranscripts"]["IncludedColumns"]]
 
 # Various post-transcript actions.
 # For each converter, after transcribing the playlist, additional actions will be performed.
@@ -605,15 +612,15 @@ def playlist2msaa(start, end, additionalDecorations=False, prefix="", suffix="")
 		playlistTranscripts = ["Playlist Transcripts"]
 		# Add a blank line for presentational purposes.
 		playlistTranscripts.append("\r\n")
-	from . import splconfig
-	columnHeaders = splconfig._SPLDefaults["ColumnAnnouncement"]["ColumnOrder"]
 	obj = start
+	columnHeaders = columnPresentationOrder()
+	columnPos = [obj.indexOf(column) for column in columnHeaders]
 	while obj not in (None, end):
 		# Exclude status column, and no need to make this readable.
-		columnContents = obj._getColumnContents(columns=list(rangeGen(1, 18)))
+		columnContents = obj._getColumnContents(columns=columnPos)
 		# Filter empty columns.
 		filteredContent = []
-		for column in rangeGen(17):
+		for column in rangeGen(len(columnPos)):
 			if columnContents[column] is not None:
 				filteredContent.append("%s: %s"%(columnHeaders[column], columnContents[column]))
 		playlistTranscripts.append("{0}{1}{2}".format(prefix, "; ".join(filteredContent), suffix))
@@ -637,11 +644,12 @@ def playlist2htmlTable(start, end, transcriptAction):
 		playlistTranscripts.append("Playlist Transcripts - use table navigation commands to review track information")
 	else: playlistTranscripts = ["Playlist Transcripts - use table navigation commands to review track information"]
 	playlistTranscripts.append("<p>")
-	from . import splconfig
-	playlistTranscripts.append("<table><tr><th>{columnHeaders}</tr>".format(columnHeaders = "<th>".join(splconfig._SPLDefaults["ColumnAnnouncement"]["ColumnOrder"])))
+	columnHeaders = columnPresentationOrder()
+	playlistTranscripts.append("<table><tr><th>{0}</tr>".format(columnHeaders))
 	obj = start
+	columnPos = [obj.indexOf(column) for column in columnHeaders]
 	while obj not in (None, end):
-		columnContents = obj._getColumnContents(readable=True)[1:]
+		columnContents = obj._getColumnContents(columns=columnPos, readable=True)
 		playlistTranscripts.append("<tr><td>{trackContents}</tr>".format(trackContents = "<td>".join(columnContents)))
 		obj = obj.next
 	playlistTranscripts.append("</table>")
@@ -668,11 +676,12 @@ SPLPlaylistTranscriptFormats.append(("htmllist", playlist2htmlList, "Data list i
 
 def playlist2mdTable(start, end, transcriptAction):
 	playlistTranscripts = []
-	from . import splconfig
-	playlistTranscripts.append("| {columnHeaders} |\n".format(columnHeaders = " | ".join(splconfig._SPLDefaults["ColumnAnnouncement"]["ColumnOrder"])))
+	columnHeaders = columnPresentationOrder()
+	playlistTranscripts.append("| {0} |\n".format(columnHeaders))
 	obj = start
+	columnPos = [obj.indexOf(column) for column in columnHeaders]
 	while obj not in (None, end):
-		columnContents = obj._getColumnContents(readable=True)[1:]
+		columnContents = obj._getColumnContents(columns=columnPos, readable=True)
 		playlistTranscripts.append("| {trackContents} |\n".format(trackContents = " | ".join(columnContents)))
 		obj = obj.next
 	if transcriptAction == 0: displayPlaylistTranscripts(playlistTranscripts)

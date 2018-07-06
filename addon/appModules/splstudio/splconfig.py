@@ -18,6 +18,7 @@ from configobj import ConfigObj
 from validate import Validator
 import time
 import datetime
+import config
 import globalVars
 import ui
 import gui
@@ -90,6 +91,10 @@ UseScreenColumnOrder = boolean(default=true)
 ColumnOrder = string_list(default=list("Artist","Title","Duration","Intro","Outro","Category","Year","Album","Genre","Mood","Energy","Tempo","BPM","Gender","Rating","Filename","Time Scheduled"))
 IncludedColumns = string_list(default=list("Artist","Title","Duration","Intro","Outro","Category","Year","Album","Genre","Mood","Energy","Tempo","BPM","Gender","Rating","Filename","Time Scheduled"))
 IncludeColumnHeaders = boolean(default=true)
+[PlaylistTranscripts]
+TranscriptFormat = option("", "txt", "htmltable", "htmllist", "mdtable", default="")
+ColumnOrder = string_list(default=list("Artist","Title","Duration","Intro","Outro","Category","Year","Album","Genre","Mood","Energy","Tempo","BPM","Gender","Rating","Filename","Time Scheduled"))
+IncludedColumns = string_list(default=list("Artist","Title","Duration","Intro","Outro","Category","Year","Album","Genre","Mood","Energy","Tempo","BPM","Gender","Rating","Filename","Time Scheduled"))
 [SayStatus]
 SayScheduledFor = boolean(default=true)
 SayListenerCount = boolean(default=true)
@@ -165,6 +170,7 @@ class ConfigHub(ChainMap):
 			copyProfile(_SPLDefaults, self.maps[0], complete=True)
 			self.maps[0].name = defaultProfileName
 			self.maps[0]["ColumnAnnouncement"]["IncludedColumns"] = set(self.maps[0]["ColumnAnnouncement"]["IncludedColumns"])
+			self.maps[0]["PlaylistTranscripts"]["IncludedColumns"] = set(self.maps[0]["PlaylistTranscripts"]["IncludedColumns"])
 			self.maps[0]["General"]["VerticalColumnAnnounce"] = None
 		self.profileNames.append(None) # Signifying normal profile.
 		# Always cache normal profile upon startup.
@@ -202,6 +208,9 @@ class ConfigHub(ChainMap):
 		self.newProfiles = set()
 		# Reset flag (only engaged if reset did happen).
 		self.resetHappened = False
+		# #73: listen to config save/reset actions from NVDA Core.
+		if hasattr(config, "post_configSave"):
+			config.post_configSave.register(self.handlePostConfigSave)
 
 	# Various properties
 	@property
@@ -329,6 +338,8 @@ class ConfigHub(ChainMap):
 		# 17.04: If vertical column announcement value is "None", transform this to NULL.
 		if conf["General"]["VerticalColumnAnnounce"] == "None":
 			conf["General"]["VerticalColumnAnnounce"] = None
+		# 18.08: same thing for included columns in Playlist Transcripts.
+		conf["PlaylistTranscripts"]["IncludedColumns"] = set(conf["PlaylistTranscripts"]["IncludedColumns"])
 
 	# Create profile: public function to access the two private ones above (used when creating a new profile).
 	# Mechanics borrowed from NVDA Core's config.conf with modifications for this add-on.
@@ -418,6 +429,8 @@ class ConfigHub(ChainMap):
 			# 7.0: This will be repeated for broadcast profiles later.
 			# 8.0: Conversion will happen here, as conversion to list is necessary before writing it to disk (if told to do so).
 			self.profiles[normalProfile]["ColumnAnnouncement"]["IncludedColumns"] = list(self.profiles[normalProfile]["ColumnAnnouncement"]["IncludedColumns"])
+			# 18.08: also convert included columns in playlist transcripts.
+			self.profiles[normalProfile]["PlaylistTranscripts"]["IncludedColumns"] = list(self.profiles[normalProfile]["PlaylistTranscripts"]["IncludedColumns"])
 			self.profiles[normalProfile].write()
 		del self.profiles[normalProfile]
 		# Now save broadcast profiles.
@@ -434,19 +447,27 @@ class ConfigHub(ChainMap):
 		self.newProfiles.clear()
 		self.profileHistory = None
 
-	def _saveVolatile(self):
+	def _saveVolatile(self, configSaveAction=False):
 		# Similar to save function except keeps the config hub alive, useful for testing new options or troubleshooting settings.
-		if self.configVolatile:
+		# #73: also used to save settings when notified by config save action.
+		# In case this is called when NVDA exits, just follow through, as profile history and new profiles list would be cleared as part of general process cleanup.
+		if self.volatileConfig:
 			raise RuntimeError("SPL config is already volatile")
-		self._volatileConfig = True
+		if not configSaveAction: self._volatileConfig = True
 		normalProfile = self.profileIndexByName(defaultProfileName)
 		_preSave(self.profiles[normalProfile])
 		if self.resetHappened or shouldSave(self.profiles[normalProfile]):
 			# 17.09: temporarily save a copy of the current column headers set.
 			includedColumnsTemp = set(self.profiles[normalProfile]["ColumnAnnouncement"]["IncludedColumns"])
 			self.profiles[normalProfile]["ColumnAnnouncement"]["IncludedColumns"] = list(self.profiles[normalProfile]["ColumnAnnouncement"]["IncludedColumns"])
+			# 18.08: also for Playlist Transcripts.
+			includedColumnsTemp2 = set(self.profiles[normalProfile]["PlaylistTranscripts"]["IncludedColumns"])
+			self.profiles[normalProfile]["PlaylistTranscripts"]["IncludedColumns"] = list(self.profiles[normalProfile]["PlaylistTranscripts"]["IncludedColumns"])
 			self.profiles[normalProfile].write()
 			self.profiles[normalProfile]["ColumnAnnouncement"]["IncludedColumns"] = includedColumnsTemp
+			self.profiles[normalProfile]["PlaylistTranscripts"]["IncludedColumns"] = includedColumnsTemp2
+			# Don't forget to update profile cache, otherwise subsequent changes are lost.
+			if configSaveAction: self._cacheConfig(self.profiles[normalProfile])
 		for configuration in self.profiles:
 			# Normal profile is done.
 			if configuration.name == defaultProfileName: continue
@@ -461,6 +482,13 @@ class ConfigHub(ChainMap):
 					_preSave(configuration)
 					configuration.write()
 					configuration["ColumnAnnouncement"]["IncludedColumns"] = set(columnHeadersTemp2)
+					# just like normal profile, cache the profile again provided that it was done already and if options in the cache and the live profile are different.
+					if configSaveAction and configuration.name in _SPLCache: self._cacheConfig(configuration)
+
+	def handlePostConfigSave(self):
+		# Call the volatile version of save function above.
+		if (self.volatileConfig or self.configInMemory): return
+		self._saveVolatile(configSaveAction=True)
 
 	# Class version of module-level functions.
 
@@ -472,6 +500,9 @@ class ConfigHub(ChainMap):
 			if not self.profileExists(profile):
 				raise ValueError("The specified profile does not exist")
 			else: profilePool.append(self.profileByName(profile))
+		# Preview: save confui2 changes flag.
+		global _confui2changed
+		_confui2changed = self["Advanced"]["ConfUI2"] != _SPLDefaults["Advanced"]["ConfUI2"]
 		for conf in profilePool:
 			# Retrieve the profile path, as ConfigObj.reset nullifies it.
 			profilePath = conf.filename
@@ -486,6 +517,8 @@ class ConfigHub(ChainMap):
 			self.profiles[0], self.profiles[npIndex] = self.profiles[npIndex], self.profiles[0]
 		# 8.0 optimization: Tell other modules that reset was done in order to postpone disk writes until the end.
 		self.resetHappened = True
+		# 18.08: don't forget to change type for Playlist Transcripts/included columns set.
+		self["PlaylistTranscripts"]["IncludedColumns"] = set(_SPLDefaults["PlaylistTranscripts"]["IncludedColumns"])
 
 	def profileIndexByName(self, name):
 		# 8.0 optimization: Only traverse the profiles list if head (active profile) or tail does not yield profile name in question.
@@ -1258,4 +1291,3 @@ def isAddonUpdatingSupported():
 
 def canUpdate():
 	return isAddonUpdatingSupported() == SPLUpdateErrorNone
-
