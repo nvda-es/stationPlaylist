@@ -76,7 +76,7 @@ _updatePickle = os.path.join(globalVars.appArgs.configPath, "splupdate.pickle")
 channels={
 	"stable":"https://addons.nvda-project.org/files/get.php?file=spl",
 	"try":"http://www.josephsl.net/files/nvdaaddons/getupdate.php?file=spl-try",
-	"lts":"http://www.josephsl.net/files/nvdaaddons/getupdate.php?file=spl-lts18prep",
+	"lts":"https://www.josephsl.net/files/nvdaaddons/getupdate.php?file=spl-lts18prep",
 }
 
 # Available channels and their UI labels (if there's only one, channel selection list will not be shown).
