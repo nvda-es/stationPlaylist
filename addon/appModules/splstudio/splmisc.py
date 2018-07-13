@@ -4,15 +4,13 @@
 # Miscellaneous functions and user interfaces
 # Split from config module in 2015.
 
-# JL's disclaimer: Apart from CSV module, others in this folder are my modules. CSV is part of Python distribution (Copyright Python Software Foundation).
-
 import sys
 py3 = sys.version.startswith("3")
 import ctypes
 import weakref
 import os
 import threading
-from .csv import reader # For cart explorer.
+from _csv import reader # For cart explorer.
 import gui
 import wx
 import ui
